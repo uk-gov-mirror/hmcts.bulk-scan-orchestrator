@@ -3,6 +3,7 @@ package uk.gov.hmcts.reform.bulkscan.orchestrator.services.ccd;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import io.vavr.collection.Array;
 import io.vavr.collection.Seq;
 import io.vavr.control.Either;
@@ -28,12 +29,15 @@ import uk.gov.hmcts.reform.ccd.client.model.StartEventResponse;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 
 import static io.vavr.control.Validation.valid;
 import static java.util.Collections.singletonList;
 import static java.util.stream.Collectors.joining;
 import static java.util.stream.Collectors.toList;
+import static java.util.stream.Collectors.toSet;
 import static uk.gov.hmcts.reform.bulkscan.orchestrator.services.ccd.CallbackValidations.canBeAttachedToCase;
 import static uk.gov.hmcts.reform.bulkscan.orchestrator.services.ccd.CallbackValidations.hasAScannedRecord;
 import static uk.gov.hmcts.reform.bulkscan.orchestrator.services.ccd.CallbackValidations.hasAnId;
@@ -93,7 +97,7 @@ public class AttachCaseCallbackService {
      * Attaches exception record to a case.
      *
      * @return Either exception record field map, when processing was successful,
-     *         or the list of errors, in case of errors
+     * or the list of errors, in case of errors
      */
     public Either<ErrorsAndWarnings, Map<String, Object>> process(
         CaseDetails exceptionRecordDetails,
@@ -216,7 +220,7 @@ public class AttachCaseCallbackService {
      * Attaches exception record to a case.
      *
      * @return Either a map of fields that should be modified in CCD when processing was successful,
-     *         or the list of errors, in case of errors
+     * or the list of errors, in case of errors
      */
     private Either<ErrorsAndWarnings, Map<String, Object>> tryAttachToCase(
         AttachToCaseEventData callBackEvent,
@@ -388,26 +392,26 @@ public class AttachCaseCallbackService {
         CaseDetails theCase = ccdApi.getCase(targetCaseCcdRef, callBackEvent.exceptionRecordJurisdiction);
         List<Map<String, Object>> targetCaseDocuments = getScannedDocuments(theCase);
 
-        ExceptionRecordAttachDocumentConnectives erDocumentConnectives = calculateDocumentConnectives(
+        verifyExceptionRecordAddsNoDuplicates(
             callBackEvent.exceptionRecordDocuments,
-            targetCaseDocuments
+            targetCaseDocuments,
+            callBackEvent.exceptionRecord.id,
+            targetCaseCcdRef
         );
 
-        if (erDocumentConnectives.hasDuplicatesAndMissing()) {
-            // To be fixed along with https://tools.hmcts.net/jira/browse/BPS-1095
-            throw new DuplicateDocsException(
-                String.format(
-                    "Problem attaching to case %s: found %s duplicates and %s missing documents",
-                    targetCaseCcdRef,
-                    erDocumentConnectives.getExistingInTargetCase(),
-                    erDocumentConnectives.getToBeAttachedToTargetCase()
-                )
-            );
-        }
+//        Set<String> alreadyAttachedDocumentDcns = getDcnsOfDocumentsAlreadyAttachedToCaseFromER(
+//            callBackEvent.exceptionRecord.id,
+//            callBackEvent.exceptionRecordDocuments,
+//            targetCaseDocuments
+//        );
 
-        if (erDocumentConnectives.hasMissing()) {
+        List<Map<String, Object>> documentsToAttach =
+            removeAlreadyAttachedDocuments(callBackEvent.exceptionRecordDocuments, targetCaseDocuments);
+
+        // TODO: move logging
+        if (documentsToAttach.size() > 0) {
             List<Map<String, Object>> newCaseDocuments = attachExceptionRecordReference(
-                callBackEvent.exceptionRecordDocuments,
+                documentsToAttach,
                 callBackEvent.exceptionRecordId
             );
 
@@ -435,13 +439,70 @@ public class AttachCaseCallbackService {
         paymentsProcessor.updatePayments(exceptionRecordDetails, theCase.getId());
     }
 
+    private Set<String> getDcnsOfDocumentsAlreadyAttachedToCaseFromER(
+        String exceptionRecordId,
+        List<Map<String, Object>> exceptionRecordDocuments,
+        List<Map<String, Object>> targetCaseDocuments
+    ) {
+        Set<String> dcnsOfCaseDocumentsFromThisExceptionRecord = targetCaseDocuments
+            .stream()
+            .filter(doc -> Objects.equals(Documents.getExceptionRecordReference(doc), exceptionRecordId))
+            .map(Documents::getDocumentId)
+            .collect(toSet());
+
+        Set<String> dcnsOfExceptionRecordDocuments = exceptionRecordDocuments
+            .stream()
+            .map(Documents::getDocumentId)
+            .collect(toSet());
+
+        return Sets.intersection(dcnsOfCaseDocumentsFromThisExceptionRecord, dcnsOfExceptionRecordDocuments);
+    }
+
+    /**
+     * Returns control numbers of those documents from the exception record which have already been added
+     * to the case, but not from this exception record.
+     */
+    private Set<String> getDcnsOfClashingDocuments(
+        String exceptionRecordId,
+        List<Map<String, Object>> exceptionRecordDocuments,
+        List<Map<String, Object>> targetCaseDocuments
+    ) {
+        Set<String> dcnsOfCaseDocumentsFromOtherSources = targetCaseDocuments
+            .stream()
+            .filter(doc -> !Objects.equals(Documents.getExceptionRecordReference(doc), exceptionRecordId))
+            .map(Documents::getDocumentId)
+            .collect(toSet());
+
+        Set<String> dcnsOfExceptionRecordDocuments = exceptionRecordDocuments
+            .stream()
+            .map(Documents::getDocumentId)
+            .collect(toSet());
+
+        return Sets.intersection(dcnsOfCaseDocumentsFromOtherSources, dcnsOfExceptionRecordDocuments);
+    }
+
+    private List<Map<String, Object>> removeAlreadyAttachedDocuments(
+        List<Map<String, Object>> exceptionRecordDocuments,
+        List<Map<String, Object>> targetCaseDocuments,
+        String exceptionRecordCcdRef
+    ) {
+        Set<String> dcnsOfCaseDocumentsFromThisExceptionRecord = targetCaseDocuments
+            .stream()
+            .filter(doc -> Objects.equals(Documents.getExceptionRecordReference(doc), exceptionRecordId))
+            .map(Documents::getDocumentId)
+            .collect(toSet());
+
+        return exceptionRecordDocuments
+            .stream()
+            .filter(doc -> Documents.getDocumentId())
+    }
+
     private Optional<ErrorsAndWarnings> updateSupplementaryEvidenceWithOcr(
         AttachToCaseEventData callBackEvent,
         String targetCaseCcdRef,
         CaseDetails exceptionRecordDetails,
         boolean ignoreWarnings
     ) {
-
         verifyExceptionRecordIsNotAttachedToCase(
             callBackEvent.exceptionRecordJurisdiction,
             callBackEvent.exceptionRecordId
@@ -525,6 +586,61 @@ public class AttachCaseCallbackService {
             getDocumentNumbers(exceptionDocuments),
             theCase.getId()
         );
+    }
+
+    private void verifyExceptionRecordAddsNoDuplicates(
+        List<Map<String, Object>> targetCaseDocuments,
+        List<Map<String, Object>> exceptionRecordDocuments,
+        String exceptionRecordCcdRef,
+        String targetCaseCcdRef
+    ) {
+        logIfDocumentsAreAlreadyAttachedToCaseFromER(
+            exceptionRecordDocuments,
+            targetCaseDocuments,
+            exceptionRecordCcdRef,
+            targetCaseCcdRef
+        );
+
+        Set<String> clashingDocumentDcns =
+            getDcnsOfClashingDocuments(exceptionRecordCcdRef, exceptionRecordDocuments, targetCaseDocuments);
+
+        if (!clashingDocumentDcns.isEmpty()) {
+            throw new DuplicateDocsException(
+                String.format(
+                    "Documents with following control numbers are already present in the case and can't be added: %s",
+                    targetCaseCcdRef,
+                    String.join(", ", clashingDocumentDcns)
+                )
+            );
+        };
+    }
+
+    private void logIfDocumentsAreAlreadyAttachedToCaseFromER(
+        List<Map<String, Object>> targetCaseDocuments,
+        List<Map<String, Object>> exceptionRecordDocuments,
+        String exceptionRecordCcdRef,
+        String targetCaseCcdRef
+    ) {
+        Set<String> alreadyAttachedDocumentDcns = getDcnsOfDocumentsAlreadyAttachedToCaseFromER(
+            exceptionRecordCcdRef,
+            exceptionRecordDocuments,
+            targetCaseDocuments
+        );
+
+        if (alreadyAttachedDocumentDcns.size() == exceptionRecordDocuments.size()) {
+            log.warn(
+                "All documents from exception record %s have already been attached to case %s.",
+                exceptionRecordCcdRef,
+                targetCaseCcdRef
+            );
+        } else if (!alreadyAttachedDocumentDcns.isEmpty()) {
+            log.warn(
+                "Following documents have already been added from exception record %s to case %s: [%s].",
+                exceptionRecordCcdRef,
+                targetCaseCcdRef,
+                String.join(", ", alreadyAttachedDocumentDcns)
+            );
+        }
     }
 
     private boolean isSearchCaseReferenceTypePresent(CaseDetails exceptionRecord) {
