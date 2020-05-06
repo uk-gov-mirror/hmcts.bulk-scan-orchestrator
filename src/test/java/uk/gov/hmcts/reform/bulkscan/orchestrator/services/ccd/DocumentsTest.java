@@ -2,10 +2,6 @@ package uk.gov.hmcts.reform.bulkscan.orchestrator.services.ccd;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.MethodSource;
-import uk.gov.hmcts.reform.bulkscan.orchestrator.model.ccd.util.ExceptionRecordAttachDocumentConnectives;
 import uk.gov.hmcts.reform.ccd.client.model.CaseDetails;
 
 import java.util.List;
@@ -17,8 +13,6 @@ import javax.validation.constraints.NotNull;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.stream.Collectors.toSet;
-import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
-import static uk.gov.hmcts.reform.bulkscan.orchestrator.services.ccd.Documents.getScannedDocuments;
 
 class DocumentsTest {
     private static final String SCANNED_DOCUMENTS = "scannedDocuments";
@@ -51,23 +45,5 @@ class DocumentsTest {
                 )
             )
             .collect(toImmutableList());
-    }
-
-    @ParameterizedTest
-    @MethodSource("documentDuplicateTestParam")
-    @DisplayName("Check the different for duplicates between the two lists.")
-    void findDuplicatesTest(CaseDetails theCase,
-                            List<Map<String, Object>> exceptionRecords,
-                            Set<Integer> duplicates) {
-        ExceptionRecordAttachDocumentConnectives erDocumentConnectives = Documents.calculateDocumentConnectives(
-            exceptionRecords,
-            getScannedDocuments(theCase)
-        );
-
-        if (duplicates.isEmpty()) {
-            assertThat(erDocumentConnectives.hasDuplicatesAndMissing()).isFalse();
-        } else {
-            assertThat(erDocumentConnectives.getExistingInTargetCase()).isEqualTo(asStringSet(duplicates));
-        }
     }
 }

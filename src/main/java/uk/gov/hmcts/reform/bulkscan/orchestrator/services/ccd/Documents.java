@@ -2,7 +2,6 @@ package uk.gov.hmcts.reform.bulkscan.orchestrator.services.ccd;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
-import uk.gov.hmcts.reform.bulkscan.orchestrator.model.ccd.util.ExceptionRecordAttachDocumentConnectives;
 import uk.gov.hmcts.reform.ccd.client.model.CaseDetails;
 
 import java.util.List;
@@ -17,34 +16,6 @@ public final class Documents {
 
     private Documents() {
     }
-
-//    static ExceptionRecordAttachDocumentConnectives calculateDocumentConnectives(
-//        List<Map<String, Object>> exceptionDocuments,
-//        List<Map<String, Object>> existingDocuments
-//    ) {
-//        Set<String> exceptionRecordDocumentIds = getDocumentIdSet(exceptionDocuments);
-//        Set<String> existingCaseDocumentIds = getDocumentIdSet(existingDocuments);
-//
-//        return new ExceptionRecordAttachDocumentConnectives(
-//            Sets.intersection(
-//                exceptionRecordDocumentIds,
-//                existingCaseDocumentIds
-//            ),
-//            Sets.difference(
-//                exceptionRecordDocumentIds,
-//                existingCaseDocumentIds
-//            )
-//        );
-//    }
-
-//    @NotNull
-//    public static Set<String> getDocumentIdSet(List<Map<String, Object>> existingDocuments) {
-//        return existingDocuments.stream()
-//            .map(Documents::getDocumentId)
-//            .filter(StringUtils::isNotEmpty)
-//            .collect(toSet());
-//    }
-
 
     public static String getExceptionRecordReference(Map<String, Object> document) {
         return Optional.ofNullable(document)

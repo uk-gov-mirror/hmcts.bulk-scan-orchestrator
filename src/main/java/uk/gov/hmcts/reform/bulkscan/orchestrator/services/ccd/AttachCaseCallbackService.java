@@ -15,7 +15,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import uk.gov.hmcts.reform.bulkscan.orchestrator.client.model.request.ExceptionRecord;
 import uk.gov.hmcts.reform.bulkscan.orchestrator.config.ServiceConfigItem;
-import uk.gov.hmcts.reform.bulkscan.orchestrator.model.ccd.util.ExceptionRecordAttachDocumentConnectives;
 import uk.gov.hmcts.reform.bulkscan.orchestrator.services.ccd.callback.CallbackException;
 import uk.gov.hmcts.reform.bulkscan.orchestrator.services.ccd.callback.ExceptionRecordValidator;
 import uk.gov.hmcts.reform.bulkscan.orchestrator.services.ccd.callback.ProcessResult;
@@ -32,6 +31,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 import static io.vavr.control.Validation.valid;
 import static java.util.Collections.singletonList;
@@ -50,7 +50,6 @@ import static uk.gov.hmcts.reform.bulkscan.orchestrator.services.ccd.CallbackVal
 import static uk.gov.hmcts.reform.bulkscan.orchestrator.services.ccd.CallbackValidations.hasServiceNameInCaseTypeId;
 import static uk.gov.hmcts.reform.bulkscan.orchestrator.services.ccd.CallbackValidations.hasUserId;
 import static uk.gov.hmcts.reform.bulkscan.orchestrator.services.ccd.CallbackValidations.validatePayments;
-import static uk.gov.hmcts.reform.bulkscan.orchestrator.services.ccd.Documents.calculateDocumentConnectives;
 import static uk.gov.hmcts.reform.bulkscan.orchestrator.services.ccd.Documents.concatDocuments;
 import static uk.gov.hmcts.reform.bulkscan.orchestrator.services.ccd.Documents.getDocumentNumbers;
 import static uk.gov.hmcts.reform.bulkscan.orchestrator.services.ccd.Documents.getScannedDocuments;
@@ -97,7 +96,7 @@ public class AttachCaseCallbackService {
      * Attaches exception record to a case.
      *
      * @return Either exception record field map, when processing was successful,
-     * or the list of errors, in case of errors
+     *         or the list of errors, in case of errors
      */
     public Either<ErrorsAndWarnings, Map<String, Object>> process(
         CaseDetails exceptionRecordDetails,
@@ -220,7 +219,7 @@ public class AttachCaseCallbackService {
      * Attaches exception record to a case.
      *
      * @return Either a map of fields that should be modified in CCD when processing was successful,
-     * or the list of errors, in case of errors
+     *         or the list of errors, in case of errors
      */
     private Either<ErrorsAndWarnings, Map<String, Object>> tryAttachToCase(
         AttachToCaseEventData callBackEvent,
@@ -399,14 +398,11 @@ public class AttachCaseCallbackService {
             targetCaseCcdRef
         );
 
-//        Set<String> alreadyAttachedDocumentDcns = getDcnsOfDocumentsAlreadyAttachedToCaseFromER(
-//            callBackEvent.exceptionRecord.id,
-//            callBackEvent.exceptionRecordDocuments,
-//            targetCaseDocuments
-//        );
-
-        List<Map<String, Object>> documentsToAttach =
-            removeAlreadyAttachedDocuments(callBackEvent.exceptionRecordDocuments, targetCaseDocuments);
+        List<Map<String, Object>> documentsToAttach = removeAlreadyAttachedDocuments(
+            callBackEvent.exceptionRecordDocuments,
+            targetCaseDocuments,
+            callBackEvent.exceptionRecord.id
+        );
 
         // TODO: move logging
         if (documentsToAttach.size() > 0) {
@@ -488,13 +484,14 @@ public class AttachCaseCallbackService {
     ) {
         Set<String> dcnsOfCaseDocumentsFromThisExceptionRecord = targetCaseDocuments
             .stream()
-            .filter(doc -> Objects.equals(Documents.getExceptionRecordReference(doc), exceptionRecordId))
+            .filter(doc -> Objects.equals(Documents.getExceptionRecordReference(doc), exceptionRecordCcdRef))
             .map(Documents::getDocumentId)
             .collect(toSet());
 
         return exceptionRecordDocuments
             .stream()
-            .filter(doc -> Documents.getDocumentId())
+            .filter(doc -> !dcnsOfCaseDocumentsFromThisExceptionRecord.contains(Documents.getDocumentId(doc)))
+            .collect(Collectors.toList());
     }
 
     private Optional<ErrorsAndWarnings> updateSupplementaryEvidenceWithOcr(
@@ -612,7 +609,8 @@ public class AttachCaseCallbackService {
                     String.join(", ", clashingDocumentDcns)
                 )
             );
-        };
+        }
+        ;
     }
 
     private void logIfDocumentsAreAlreadyAttachedToCaseFromER(
