@@ -1,5 +1,6 @@
 package uk.gov.hmcts.reform.bulkscan.orchestrator.services.ccd.events;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -14,7 +15,11 @@ import uk.gov.hmcts.reform.ccd.client.model.CaseDetails;
 import uk.gov.hmcts.reform.ccd.client.model.Event;
 import uk.gov.hmcts.reform.ccd.client.model.StartEventResponse;
 
+import java.util.List;
+import java.util.Map;
+
 import static uk.gov.hmcts.reform.bulkscan.orchestrator.helper.ScannedDocumentsHelper.getDocuments;
+import static uk.gov.hmcts.reform.bulkscan.orchestrator.services.ccd.definition.CommonCaseFields.BULK_SCAN_ENVELOPES;
 
 @Component
 class AttachDocsToSupplementaryEvidence {
@@ -25,13 +30,16 @@ class AttachDocsToSupplementaryEvidence {
 
     private final SupplementaryEvidenceMapper mapper;
     private final CcdApi ccdApi;
+    private final ObjectMapper objectMapper;
 
     public AttachDocsToSupplementaryEvidence(
         SupplementaryEvidenceMapper mapper,
-        CcdApi ccdApi
+        CcdApi ccdApi,
+        ObjectMapper objectMapper
     ) {
         this.mapper = mapper;
         this.ccdApi = ccdApi;
+        this.objectMapper = objectMapper;
     }
 
     /**
@@ -74,12 +82,13 @@ class AttachDocsToSupplementaryEvidence {
         return true;
     }
 
+    @SuppressWarnings("unchecked")
     private CaseDataContent buildCaseDataContent(Envelope envelope, StartEventResponse startEventResponse) {
-        SupplementaryEvidence caseData = mapper.map(
-            getDocuments(startEventResponse.getCaseDetails()),
-            envelope.documents,
-            envelope.deliveryDate
-        );
+        CaseDetails caseDetails = startEventResponse.getCaseDetails();
+        var envelopeReferences = (List<Map<String, Object>>)caseDetails.getData().get(BULK_SCAN_ENVELOPES);
+
+        SupplementaryEvidence caseData = mapper.map(getDocuments(caseDetails), envelopeReferences, envelope);
+
         return CaseDataContent.builder()
             .eventToken(startEventResponse.getToken())
             .event(Event.builder()

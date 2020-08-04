@@ -13,6 +13,7 @@ import uk.gov.hmcts.reform.bulkscan.orchestrator.client.caseupdate.model.respons
 import uk.gov.hmcts.reform.bulkscan.orchestrator.client.caseupdate.model.response.SuccessfulUpdateResponse;
 import uk.gov.hmcts.reform.bulkscan.orchestrator.client.model.response.ClientServiceErrorResponse;
 import uk.gov.hmcts.reform.bulkscan.orchestrator.config.ServiceConfigItem;
+import uk.gov.hmcts.reform.bulkscan.orchestrator.model.ccd.CaseAction;
 import uk.gov.hmcts.reform.bulkscan.orchestrator.model.internal.ExceptionRecord;
 import uk.gov.hmcts.reform.bulkscan.orchestrator.services.ccd.callback.CallbackException;
 import uk.gov.hmcts.reform.ccd.client.CoreCaseDataApi;
@@ -22,6 +23,7 @@ import uk.gov.hmcts.reform.ccd.client.model.Event;
 import uk.gov.hmcts.reform.ccd.client.model.StartEventResponse;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import javax.validation.ConstraintViolationException;
 
@@ -31,6 +33,8 @@ import static java.util.stream.Collectors.toList;
 import static uk.gov.hmcts.reform.bulkscan.orchestrator.helper.ScannedDocumentsHelper.getDocuments;
 import static uk.gov.hmcts.reform.bulkscan.orchestrator.helper.ScannedDocumentsHelper.setExceptionRecordIdToScannedDocuments;
 import static uk.gov.hmcts.reform.bulkscan.orchestrator.logging.FeignExceptionLogger.debugCcdException;
+import static uk.gov.hmcts.reform.bulkscan.orchestrator.services.ccd.definition.CommonCaseFields.BULK_SCAN_CASE_REFERENCE;
+import static uk.gov.hmcts.reform.bulkscan.orchestrator.services.ccd.definition.CommonCaseFields.BULK_SCAN_ENVELOPES;
 
 @Service
 public class CcdCaseUpdater {
@@ -40,17 +44,20 @@ public class CcdCaseUpdater {
     private final CoreCaseDataApi coreCaseDataApi;
     private final CaseUpdateClient caseUpdateClient;
     private final ServiceResponseParser serviceResponseParser;
+    private final EnvelopeReferenceCollectionHelper envelopeReferenceCollectionHelper;
 
     public CcdCaseUpdater(
         AuthTokenGenerator s2sTokenGenerator,
         CoreCaseDataApi coreCaseDataApi,
         CaseUpdateClient caseUpdateClient,
-        ServiceResponseParser serviceResponseParser
+        ServiceResponseParser serviceResponseParser,
+        EnvelopeReferenceCollectionHelper envelopeReferenceCollectionHelper
     ) {
         this.s2sTokenGenerator = s2sTokenGenerator;
         this.coreCaseDataApi = coreCaseDataApi;
         this.caseUpdateClient = caseUpdateClient;
         this.serviceResponseParser = serviceResponseParser;
+        this.envelopeReferenceCollectionHelper = envelopeReferenceCollectionHelper;
     }
 
     public Optional<ErrorsAndWarnings> updateCase(
@@ -129,7 +136,13 @@ public class CcdCaseUpdater {
                 );
                 return Optional.of(new ErrorsAndWarnings(emptyList(), updateResponse.warnings));
             } else {
-                setExceptionRecordIdToScannedDocuments(exceptionRecord, updateResponse.caseDetails);
+                // TODO: make a copy
+                setBulkScanSpecificFields(
+                    updateResponse.caseDetails,
+                    configItem.getService(),
+                    exceptionRecord,
+                    existingCase.getData()
+                );
 
                 updateCaseInCcd(
                     ignoreWarnings,
@@ -191,14 +204,14 @@ public class CcdCaseUpdater {
                 ),
                 exception
             );
-        // exceptions received from case update client
+            // exceptions received from case update client
         } catch (RestClientException exception) {
             String message = getErrorMessage(configItem.getService(), existingCaseId, exceptionRecord.id);
 
             log.error(message, exception);
 
             throw new CallbackException(message, exception);
-        // rest of exceptions we did not handle appropriately. so far not such case
+            // rest of exceptions we did not handle appropriately. so far not such case
         } catch (ConstraintViolationException exc) {
             String errorMessage = getErrorMessage(configItem.getService(), existingCaseId, exceptionRecord.id);
             throw new CallbackException(
@@ -210,6 +223,42 @@ public class CcdCaseUpdater {
                 getErrorMessage(configItem.getService(), existingCaseId, exceptionRecord.id),
                 exception
             );
+        }
+    }
+
+    // TODO: make the updated object a copy, instead of modifying the original
+    private void setBulkScanSpecificFields(
+        CaseUpdateDetails caseUpdateDetails,
+        String service,
+        ExceptionRecord exceptionRecord,
+        Map<String, Object> originalCaseData
+    ) {
+        setExceptionRecordIdToScannedDocuments(exceptionRecord, caseUpdateDetails);
+        updateEnvelopeReferences(service, caseUpdateDetails, exceptionRecord, originalCaseData);
+    }
+
+    @SuppressWarnings("unchecked")
+    private void updateEnvelopeReferences(
+        String service,
+        CaseUpdateDetails caseUpdateDetails,
+        ExceptionRecord exceptionRecord,
+        Map<String, Object> originalCaseData
+    ) {
+        var updatedCaseData = (Map<String, Object>) caseUpdateDetails.caseData;
+
+        if (envelopeReferenceCollectionHelper.serviceSupportsEnvelopeReferences(service)) {
+            var envelopeReferences = envelopeReferenceCollectionHelper.parseEnvelopeReferences(
+                (List<Map<String, Object>>) originalCaseData.get(BULK_SCAN_CASE_REFERENCE)
+            );
+
+            envelopeReferences.addAll(
+                envelopeReferenceCollectionHelper.singleEnvelopeReferenceList(
+                    exceptionRecord.envelopeId,
+                    CaseAction.UPDATE
+                )
+            );
+
+            updatedCaseData.put(BULK_SCAN_ENVELOPES, envelopeReferences);
         }
     }
 

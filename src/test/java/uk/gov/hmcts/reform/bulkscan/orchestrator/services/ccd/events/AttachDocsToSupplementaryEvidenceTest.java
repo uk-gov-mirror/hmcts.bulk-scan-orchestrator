@@ -1,5 +1,6 @@
 package uk.gov.hmcts.reform.bulkscan.orchestrator.services.ccd.events;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -41,11 +42,14 @@ class AttachDocsToSupplementaryEvidenceTest {
     @Mock
     private SupplementaryEvidenceMapper mapper;
 
+    @Mock
+    private ObjectMapper objectMapper;
+
     private AttachDocsToSupplementaryEvidence attacher;
 
     @BeforeEach
     void setUp() {
-        this.attacher = new AttachDocsToSupplementaryEvidence(mapper, ccdApi);
+        this.attacher = new AttachDocsToSupplementaryEvidence(mapper, ccdApi, objectMapper);
     }
 
     @SuppressWarnings("unchecked")
@@ -98,7 +102,7 @@ class AttachDocsToSupplementaryEvidenceTest {
         assertThat(docsAttached).isTrue();
 
         // and
-        verify(mapper).map(emptyList(), envelope.documents, envelope.deliveryDate);
+        verify(mapper).map(emptyList(), null, envelope);
     }
 
     @Test
