@@ -10,19 +10,11 @@ import java.util.List;
 
 public class TransformationRequest {
 
-    /**
-     * Deprecated. Use {@link #exceptionRecordId} instead.
-     */
-    @Deprecated
     public final String id;
 
     @JsonProperty("exception_record_id")
     public final String exceptionRecordId;
 
-    /**
-     * Deprecated. Use {@link #exceptionRecordCaseTypeId} instead.
-     */
-    @Deprecated
     @JsonProperty("case_type_id")
     public final String caseTypeId;
 
